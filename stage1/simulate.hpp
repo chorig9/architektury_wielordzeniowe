@@ -7,6 +7,12 @@
 
 #include "constants.hpp"
 
+/*
+ XXX:
+ 1. data-oriented
+ 2. split screen + assign the same balls to same threads
+ */
+
 struct vector
 {
     float x;
@@ -86,34 +92,39 @@ struct wall_distance
     float l_wall, r_wall, t_wall, b_wall;
 };
 
-/* XXX-opt: calculate everything and one if later? */
-/* return table of distances to walls and call std::min */
-vector wall_collision_point(Ball &lhs)
+wall_distance wall_collision_point(Ball &lhs)
 {
-    if (lhs.position.x + lhs.radius() >= RIGHT_WALL)
-        return {RIGHT_WALL, lhs.position.y};
-    if (lhs.position.x - lhs.radius() <= LEFT_WALL)
-        return {LEFT_WALL, lhs.position.y};
-    if (lhs.position.y + lhs.radius() >= TOP_WALL)
-        return {lhs.position.x, TOP_WALL};
-    if (lhs.position.y - lhs.radius() <= BOTTOM_WALL)
-        return {lhs.position.x, BOTTOM_WALL};
-    else
-        return {0, 0};
+    return {lhs.position.x - LEFT_WALL,
+            RIGHT_WALL - lhs.position.x,
+            TOP_WALL - lhs.position.y,
+            lhs.position.y - BOTTOM_WALL};
 }
 
 void collide_wall(Ball &lhs)
 {
+    auto wall_dists = wall_collision_point(lhs);
+    vector x2 = {lhs.position.x, lhs.position.y};
+
+    if (wall_dists.l_wall < lhs.radius()) {
+        lhs.position.x = LEFT_WALL + lhs.radius();
+        x2.x = LEFT_WALL;
+    } else if (wall_dists.r_wall < lhs.radius()) {
+        lhs.position.x = RIGHT_WALL - lhs.radius();
+        x2.x = RIGHT_WALL;
+    /* only consider collision with one wall */
+    } else if (wall_dists.t_wall < lhs.radius()) {
+        lhs.position.y = TOP_WALL - lhs.radius();
+        x2.y = TOP_WALL;
+    } else if (wall_dists.b_wall < lhs.radius()) {
+        lhs.position.y = BOTTOM_WALL + lhs.radius();
+        x2.y = BOTTOM_WALL;
+    } else {
+        return;
+    }
+
     auto &v1 = lhs.velocity;
     auto &m1 = lhs.mass;
     auto &x1 = lhs.position;
-    auto x2 = wall_collision_point(lhs);
-
-    /* no collision */
-    if (x2.x == 0 && x2.y == 0)
-        return;
-
-    
 
     auto norm1 = norm_pow2(x1 - x2);
 
@@ -139,8 +150,6 @@ void collide(Ball &lhs, Ball &rhs)
 
     /* move x2 away from x1 so that x2 - x1 == r1 + r2 */
     x2 = x1 + coef * overlap;
-    x2.x += OVERLAP_MARGIN;
-    x2.y += OVERLAP_MARGIN;
 
     auto norm1 = norm_pow2(x1 - x2);
     auto norm2 = norm_pow2(x2 - x1);
@@ -153,7 +162,7 @@ void collide(Ball &lhs, Ball &rhs)
 
 void advance(Ball &b)
 {
-    b.position += b.velocity;
+    b.position += SIMULATION_STEP * b.velocity;
 }
 
 class simulation
