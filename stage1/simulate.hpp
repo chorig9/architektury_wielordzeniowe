@@ -151,18 +151,17 @@ void collide(Ball &lhs, Ball &rhs)
     /* move x2 away from x1 so that x2 - x1 == r1 + r2 */
     x2 = x1 + coef * overlap;
 
-    auto norm1 = norm_pow2(x1 - x2);
-    auto norm2 = norm_pow2(x2 - x1);
+    auto norm = norm_pow2(x1 - x2);
 
-    auto new_v1 = v1 - (2 * m2) / (m1 + m2) * dot(v1 - v2, x1 - x2) / norm1 * (x1 - x2);
+    auto new_v1 = v1 - (2 * m2) / (m1 + m2) * dot(v1 - v2, x1 - x2) / norm * (x1 - x2);
 
-    v2 -= (2 * m1) / (m1 + m2) * dot(v2 - v1, x2 - x1) / norm2 * (x2 - x1);
+    v2 -= (2 * m1) / (m1 + m2) * dot(v2 - v1, x2 - x1) / norm * (x2 - x1);
     v1 = new_v1;
 }
 
 void advance(Ball &b)
 {
-    b.position += SIMULATION_STEP * b.velocity;
+    b.position += b.velocity;
 }
 
 class simulation

@@ -28,7 +28,7 @@ void init(void){
 void Timer(int ex)
 {
     glutPostRedisplay();
-    glutTimerFunc(30,Timer,0);
+    glutTimerFunc(1,Timer,0);
 }
 
 void DrawCircle(float cx, float cy, float r, int num_segments)
@@ -65,24 +65,25 @@ void DrawWals()
     glVertex2f(RIGHT_WALL, TOP_WALL);
     glEnd();
 }
-
-Ball balls[] = {
-    {{0, 0}, {2, 0}, 2}, {{100, 0}, {-3, 0}, 1}
-};
-
-static constexpr size_t n_balls = sizeof(balls) / sizeof(balls[0]);
- 
+  
 void display(void)
 {
+    static int counter = 0;
+
+    sim->step();
+
+    counter = (counter + 1) % DRAW_STEP;
+
+    if (counter != 0)
+        return;
+
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glColor4f(0.0,1.0,1.0,1.0);
 
     DrawWals();
 
-    sim->step();
-
     for (int i = 0; i < sim->balls().size(); i++)
-        DrawCircle(sim->balls()[i].position.x, sim->balls()[i].position.y, sim->balls()[i].radius(), 200);
+        DrawCircle(sim->balls()[i].position.x, sim->balls()[i].position.y, sim->balls()[i].radius(), 50);
 
     glutSwapBuffers();
 }
