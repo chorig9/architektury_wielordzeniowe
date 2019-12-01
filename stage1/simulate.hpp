@@ -6,6 +6,7 @@
 #include <iostream>
 
 #include "constants.hpp"
+#include <array>
 
 /*
  XXX:
@@ -50,13 +51,19 @@ struct vector
 
 struct Ball
 {
-    Ball(vector position, vector velocity, float mass): position(position), velocity(velocity), mass(mass)
+    Ball(vector position, vector velocity, float mass, int i): position(position), velocity(velocity), mass(mass), index(i)
     {
     }
 
+    Ball(const Ball &rhs) = default;
+
+    Ball &operator=(const Ball &rhs) = default;
+
     vector position;
     vector velocity;
-    const float mass;
+    float mass;
+
+    int index;
 
     const float radius() const
     {
@@ -183,17 +190,65 @@ public:
             auto velocity = vector{get_random(MIN_SPEED, MAX_SPEED), get_random(MIN_SPEED, MAX_SPEED)};
             auto mass = get_random(MIN_MASS, MAX_MASS);
 
-            _balls.emplace_back(position, velocity, mass);
+            _balls.emplace_back(position, velocity, mass, i);
         }
     }
 
     void step()
     {
-        for (int i = 0; i < _balls.size() ; i++) {
-            for (int j = i + 1; j < _balls.size(); j++) {
-                collide(_balls[i], _balls[j]);
+        std::array<std::vector<Ball>, REGIONS_NUM> regions;
+
+        // for (int r = 0; r < REGIONS_NUM; r++) {
+        //     // XXX: just calculate to which region ball should go? (in parralell)
+        //     for (int i = 0; i < _balls.size(); i++) {
+        //         int region_x = (_balls[i].position.x + WIDTH / 2) / REGIONS_SINGLE;
+        //         int region_y = (_balls[i].position.y + HEIGHT / 2) / REGIONS_SINGLE;
+
+        //         if (region_x == (r % REGIONS_X) && region_y == (r / REGIONS_X)) {
+        //             regions[r].push_back(_balls[i]);
+        //         }
+        //     }
+        // }
+
+        for (int i = 0; i < _balls.size(); i++) {
+                int region_x = (_balls[i].position.x + WIDTH / 2) / REGIONS_SINGLE;
+                int region_y = (_balls[i].position.y + HEIGHT / 2) / REGIONS_SINGLE;
+
+                int r = region_x + region_y * REGIONS_X;
+                regions[r].push_back(_balls[i]);
             }
 
+        for (int r = 0; r < REGIONS_NUM; r++) {
+
+            int neighbour_regions[] = {1, REGIONS_X, REGIONS_X + 1};
+
+            for (int rs = 0; rs < 3; rs++) {
+                int neighbour = r + neighbour_regions[rs];
+
+                if (neighbour < 0 || neighbour >= REGIONS_NUM)
+                    continue;
+
+                for (int i = 0; i < regions[r].size(); i++) {
+                    for (int j = 0; j < regions[neighbour].size(); j++) {
+                        collide(regions[r][i], regions[neighbour][j]);
+                    }
+                }
+            }
+
+            for (int i = 0; i < regions[r].size(); i++) {
+                for (int j = i + 1; j < regions[r].size(); j++) {
+                    collide(regions[r][i], regions[r][j]);
+                }
+            }
+        }
+
+        for (int r = 0; r < REGIONS_NUM; r++) {
+            for (int i = 0; i < regions[r].size(); i++) {
+                _balls[regions[r][i].index] = regions[r][i];
+            }   
+        } 
+
+        for (int i = 0; i < _balls.size() ; i++) {
             collide_wall(_balls[i]);
 
             advance(_balls[i]);

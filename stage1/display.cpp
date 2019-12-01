@@ -93,7 +93,7 @@ void idle(void){
 }
  
 int main(int argc, char **argv){
-    simulation s(1000, time(NULL));
+    simulation s(4000, time(NULL));
     sim = &s;
 
     glutInit(&argc,argv);
