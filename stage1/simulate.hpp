@@ -8,87 +8,58 @@
 #include "constants.hpp"
 #include <array>
 
-/*
- XXX:
- 1. data-oriented
- 2. split screen + assign the same balls to same threads
- */
+typedef float float8_t __attribute__ ((vector_size (8 * sizeof(float))));
 
-struct vector
-{
-    float x;
-    float y;
+template <typename T>
+static T* aligned_alloc(int n) {
+    void* tmp = 0;
 
-    vector& operator-=(const vector &rhs)
-    {
-        x -= rhs.x;
-        y -= rhs.y;
-        return *this;
+    auto alignment = sizeof(T) > sizeof(void*) ? sizeof(T) : sizeof(void*);
+    if (posix_memalign(&tmp, alignment, sizeof(T) * n)) {
+        throw std::bad_alloc();
     }
-
-    vector& operator+=(const vector &rhs)
-    {
-        x += rhs.x;
-        y += rhs.y;
-        return *this;
-    }
-
-    vector operator+(const vector &rhs)
-    {
-        return {x + rhs.x, y + rhs.y};
-    }
-
-    vector operator-(const vector &rhs)
-    {
-        return {x - rhs.x, y - rhs.y};
-    }
-
-    friend vector operator*(float lhs, const vector &rhs)
-    {
-        return {rhs.x * lhs, rhs.y * lhs};
-    }
-};
-
-struct Ball
-{
-    Ball(vector position, vector velocity, float mass, int i): position(position), velocity(velocity), mass(mass), index(i)
-    {
-    }
-
-    Ball(const Ball &rhs) = default;
-
-    Ball &operator=(const Ball &rhs) = default;
-
-    vector position;
-    vector velocity;
-    float mass;
-
-    int index;
-
-    const float radius() const
-    {
-        return mass;
-    }
-};
-
-float dot(const vector &lhs, const vector &rhs)
-{
-    return lhs.x * rhs.x + lhs.y * rhs.y;
+    return (T*)tmp;
 }
 
-float norm_pow2(const vector &rhs)
+struct Balls
 {
-    return rhs.x * rhs.x + rhs.y * rhs.y;        
-}
+    Balls(int num = REGIONS_SINGLE * REGIONS_SINGLE / (MIN_MASS * MIN_MASS)): size(0), capacity(num) {
+        x = aligned_alloc<float>(num);
+        y = aligned_alloc<float>(num);
+        v_x = aligned_alloc<float>(num);
+        v_y = aligned_alloc<float>(num);
+        mass = aligned_alloc<float>(num);
+        index = aligned_alloc<int>(num);
+    }
 
-bool is_collision(Ball &lhs, Ball &rhs)
+    ~Balls() {
+        std::free(x);
+        std::free(y);
+        std::free(v_x);
+        std::free(v_y);
+        std::free(mass);
+        std::free(index);
+    }
+
+    float *x;
+    float *y;
+    float *v_x;
+    float *v_y;
+    float *mass;
+    int *index;
+
+    int size;
+    int capacity;
+};
+
+bool is_collision(float x1, float y1, float r1, float x2, float y2, float r2)
 {
-    float xd = lhs.position.x - rhs.position.x;
-    float yd = lhs.position.y - rhs.position.y;
+    float sumRadius = r1 + r2;
 
-    float sumRadius = lhs.radius() + rhs.radius();
+    float xd = x1 - x2;
+    float yd = y1 - y2;
+
     float sqrRadius = sumRadius * sumRadius;
-
     float distSqr = (xd * xd) + (yd * yd);
 
     return distSqr <= sqrRadius; 
@@ -99,84 +70,85 @@ struct wall_distance
     float l_wall, r_wall, t_wall, b_wall;
 };
 
-wall_distance wall_collision_point(Ball &lhs)
+wall_distance wall_collision_point(float x, float y)
 {
-    return {lhs.position.x - LEFT_WALL,
-            RIGHT_WALL - lhs.position.x,
-            TOP_WALL - lhs.position.y,
-            lhs.position.y - BOTTOM_WALL};
+    return {x - LEFT_WALL,
+            RIGHT_WALL - x,
+            TOP_WALL - y,
+            y - BOTTOM_WALL};
 }
 
-void collide_wall(Ball &lhs)
+void collide_wall(float &x, float &y, float m, float &v_x, float &v_y)
 {
-    auto wall_dists = wall_collision_point(lhs);
-    vector x2 = {lhs.position.x, lhs.position.y};
+    auto wall_dists = wall_collision_point(x, y);
+    float collision_x = x;
+    float collision_y = y;
 
-    if (wall_dists.l_wall < lhs.radius()) {
-        lhs.position.x = LEFT_WALL + lhs.radius();
-        x2.x = LEFT_WALL;
-    } else if (wall_dists.r_wall < lhs.radius()) {
-        lhs.position.x = RIGHT_WALL - lhs.radius();
-        x2.x = RIGHT_WALL;
+    if (wall_dists.l_wall < m) {
+        x = LEFT_WALL + m;
+        collision_x = LEFT_WALL;
+    } else if (wall_dists.r_wall < m) {
+        x = RIGHT_WALL - m;
+        collision_x = RIGHT_WALL;
     /* only consider collision with one wall */
-    } else if (wall_dists.t_wall < lhs.radius()) {
-        lhs.position.y = TOP_WALL - lhs.radius();
-        x2.y = TOP_WALL;
-    } else if (wall_dists.b_wall < lhs.radius()) {
-        lhs.position.y = BOTTOM_WALL + lhs.radius();
-        x2.y = BOTTOM_WALL;
+    } else if (wall_dists.t_wall < m) {
+        y = TOP_WALL - m;
+        collision_y = TOP_WALL;
+    } else if (wall_dists.b_wall < m) {
+        y = BOTTOM_WALL + m;
+        collision_y = BOTTOM_WALL;
     } else {
         return;
     }
 
-    auto &v1 = lhs.velocity;
-    auto &m1 = lhs.mass;
-    auto &x1 = lhs.position;
+    auto dot = v_x * (x - collision_x) + v_y * (y - collision_y);
+    auto norm = (x - collision_x) * (x - collision_x) + (y - collision_y) * (y - collision_y);
+    auto dot_norm = dot / norm;
 
-    auto norm1 = norm_pow2(x1 - x2);
-
-    v1 -= 2 * dot(v1, x1 - x2) / norm1 * (x1 - x2);
+    v_x -= 2 * dot_norm * (x - collision_x);
+    v_y -= 2 * dot_norm * (y - collision_y);
 }
 
-void collide(Ball &lhs, Ball &rhs)
+void collide(float &x1, float &y1, float m1, float &v_x1, float &v_y1, float &x2, float& y2, float m2, float &v_x2, float &v_y2)
 {
-    if (!is_collision(lhs, rhs))
+    if (!is_collision(x1, y1, m1, x2, y2, m2))
         return;
 
-    auto &v1 = lhs.velocity;
-    auto &v2 = rhs.velocity;
-    auto &m1 = lhs.mass;
-    auto &m2 = rhs.mass;
-    auto &x1 = lhs.position;
-    auto &x2 = rhs.position;
+    float overlap_x = x2 - x1;
+    float overlap_y = y2 - y1;
 
-    vector overlap = {x2.x - x1.x, x2.y - x1.y};
-    float overlap_dist = sqrt(overlap.x * overlap.x + overlap.y * overlap.y);
-    float radius_sum = lhs.radius() + rhs.radius();
+    float overlap_dist = sqrt(overlap_x * overlap_x + overlap_y * overlap_y);
+    float radius_sum = m1 + m2;
     float coef = radius_sum / overlap_dist;
 
     /* move x2 away from x1 so that x2 - x1 == r1 + r2 */
-    x2 = x1 + coef * overlap;
+    x2 = x1 + coef * overlap_x;
+    y2 = y1 + coef * overlap_y;
 
-    auto norm = norm_pow2(x1 - x2);
+    auto norm = (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2);
+    norm = norm != 0 ? norm : 1;
 
-    auto new_v1 = v1 - (2 * m2) / (m1 + m2) * dot(v1 - v2, x1 - x2) / norm * (x1 - x2);
+    auto dot1 = (v_x1 - v_x2) * (x1 - x2) + (v_y1 - v_y2) * (y1 - y2);
+    auto dot2 = (v_x2 - v_x1) * (x2 - x1) + (v_y2 - v_y1) * (y2 - y1);
 
-    v2 -= (2 * m1) / (m1 + m2) * dot(v2 - v1, x2 - x1) / norm * (x2 - x1);
-    v1 = new_v1;
+    v_x1 -= (2 * m2) / (m1 + m2) * dot1 / norm * (x1 - x2);
+    v_y1 -= (2 * m2) / (m1 + m2) * dot1 / norm * (y1 - y2);
+
+    v_x2 -= (2 * m1) / (m1 + m2) * dot2 / norm * (x2 - x1);
+    v_y2 -= (2 * m1) / (m1 + m2) * dot2 / norm * (y2 - y1);
 }
 
-void advance(Ball &b)
+void advance(float &x, float &y, float v_x, float v_y)
 {
-    b.position += b.velocity;
+    x += v_x;
+    y += v_y;
 }
 
 class simulation
 {
 public:
-    simulation(int n_balls, int seed): _balls()
+    simulation(int n_balls, int seed): _balls(n_balls)
     {
-        _balls.reserve(n_balls);
         srand(seed);
 
         x_regions = (WIDTH - 2 * MARGIN - 2 * MAX_MASS) / (2 * MAX_MASS);
@@ -187,16 +159,22 @@ public:
 
         for (int i = 0; i < n_balls; i++) {
             auto position = get_random_pos(pos_bitmap);
-            auto velocity = vector{get_random(MIN_SPEED, MAX_SPEED), get_random(MIN_SPEED, MAX_SPEED)};
-            auto mass = get_random(MIN_MASS, MAX_MASS);
 
-            _balls.emplace_back(position, velocity, mass, i);
+            _balls.x[i] = position.first;
+            _balls.y[i] = position.second;
+            _balls.v_x[i] = get_random(MIN_SPEED, MAX_SPEED);
+            _balls.v_y[i] = get_random(MIN_SPEED, MAX_SPEED);
+            _balls.mass[i] = get_random(MIN_MASS, MAX_MASS);
+            _balls.index[i] = i;
         }
+
+        _balls.size = n_balls;
     }
 
     void step()
     {
-        std::array<std::vector<Ball>, REGIONS_NUM> regions;
+        //std::array<std::vector<Ball>, REGIONS_NUM> regions;
+        std::array<Balls, REGIONS_NUM> regions;
 
         // for (int r = 0; r < REGIONS_NUM; r++) {
         //     // XXX: just calculate to which region ball should go? (in parralell)
@@ -210,52 +188,95 @@ public:
         //     }
         // }
 
-        for (int i = 0; i < _balls.size(); i++) {
-                int region_x = (_balls[i].position.x + WIDTH / 2) / REGIONS_SINGLE;
-                int region_y = (_balls[i].position.y + HEIGHT / 2) / REGIONS_SINGLE;
+        for (int i = 0; i < _balls.size; i++) {
+                int region_x = (_balls.x[i] + WIDTH / 2) / REGIONS_SINGLE;
+                int region_y = (_balls.y[i] + HEIGHT / 2) / REGIONS_SINGLE;
 
                 int r = region_x + region_y * REGIONS_X;
-                regions[r].push_back(_balls[i]);
+                auto &balls = regions[r];
+
+                balls.x[balls.size] = _balls.x[i];
+                balls.y[balls.size] = _balls.y[i];
+                balls.v_x[balls.size] = _balls.v_x[i];
+                balls.v_y[balls.size] = _balls.v_y[i];
+                balls.mass[balls.size] = _balls.mass[i];
+                balls.index[balls.size] = _balls.index[i];
+                balls.size++;
             }
 
         for (int r = 0; r < REGIONS_NUM; r++) {
-
             int neighbour_regions[] = {1, REGIONS_X, REGIONS_X + 1};
 
+            // neighbour regions
             for (int rs = 0; rs < 3; rs++) {
                 int neighbour = r + neighbour_regions[rs];
 
                 if (neighbour < 0 || neighbour >= REGIONS_NUM)
                     continue;
 
-                for (int i = 0; i < regions[r].size(); i++) {
-                    for (int j = 0; j < regions[neighbour].size(); j++) {
-                        collide(regions[r][i], regions[neighbour][j]);
+                for (int i = 0; i < regions[r].size; i++) {
+                    for (int j = 0; j < regions[neighbour].size; j++) {
+                        collide(regions[r].x[i],
+                                regions[r].y[i],
+                                regions[r].mass[i],
+                                regions[r].v_x[i],
+                                regions[r].v_y[i],
+                                regions[neighbour].x[j],
+                                regions[neighbour].y[j],
+                                regions[neighbour].mass[j],
+                                regions[neighbour].v_x[j],
+                                regions[neighbour].v_y[j]);
                     }
                 }
             }
 
-            for (int i = 0; i < regions[r].size(); i++) {
-                for (int j = i + 1; j < regions[r].size(); j++) {
-                    collide(regions[r][i], regions[r][j]);
+            // same region
+            for (int i = 0; i < regions[r].size; i++) {
+                for (int j = i + 1; j < regions[r].size; j++) {
+                        collide(regions[r].x[i],
+                                regions[r].y[i],
+                                regions[r].mass[i],
+                                regions[r].v_x[i],
+                                regions[r].v_y[i],
+                                regions[r].x[j],
+                                regions[r].y[j],
+                                regions[r].mass[j],
+                                regions[r].v_x[j],
+                                regions[r].v_y[j]);
                 }
             }
         }
 
+        // assign data back
         for (int r = 0; r < REGIONS_NUM; r++) {
-            for (int i = 0; i < regions[r].size(); i++) {
-                _balls[regions[r][i].index] = regions[r][i];
+            for (int i = 0; i < regions[r].size; i++) {
+                auto &balls = regions[r];
+                auto index = balls.index[i];
+
+                _balls.x[index] = balls.x[i];
+                _balls.y[index] = balls.y[i];
+                _balls.v_x[index] = balls.v_x[i];
+                _balls.v_y[index] = balls.v_y[i];
+                _balls.mass[index] = balls.mass[i];
+                _balls.index[index] = balls.index[i];
             }   
         } 
 
-        for (int i = 0; i < _balls.size() ; i++) {
-            collide_wall(_balls[i]);
+        // collide with walls
+        for (int i = 0; i < _balls.size; i++) {
+            collide_wall(_balls.x[i],
+                    _balls.y[i],
+                    _balls.mass[i],
+                    _balls.v_x[i],
+                    _balls.v_y[i]);
+        }
 
-            advance(_balls[i]);
+        for (int i = 0; i < _balls.size; i++) {
+            advance(_balls.x[i], _balls.y[i], _balls.v_x[i], _balls.v_y[i]);
         }
     }
 
-    const std::vector<Ball>& balls()
+    const Balls& balls()
     {
         return _balls;
     }
@@ -266,7 +287,7 @@ private:
         return lo + static_cast <float> (rand()) /( static_cast <float> (RAND_MAX/(hi-lo)));
     }
 
-    vector get_random_pos(std::vector<bool> &pos_bitmap)
+    std::pair<float, float> get_random_pos(std::vector<bool> &pos_bitmap)
     {
             int pos_random;
             do {
@@ -275,12 +296,12 @@ private:
 
             pos_bitmap[pos_random] = true;
 
-            int x = (pos_random % x_regions) * 2 * MAX_MASS + 2 * MAX_MASS - WIDTH / 2; 
-            int y = (pos_random / x_regions) * 2 * MAX_MASS + 2 * MAX_MASS - HEIGHT / 2;
+            float x = (float) ((pos_random % x_regions) * 2 * MAX_MASS + 2 * MAX_MASS - WIDTH / 2); 
+            float y = (float) ((pos_random / x_regions) * 2 * MAX_MASS + 2 * MAX_MASS - HEIGHT / 2);
 
             return {x, y};
     }
 
     int x_regions, y_regions;
-    std::vector<Ball> _balls;
+    Balls _balls;
 };

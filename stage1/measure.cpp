@@ -22,7 +22,7 @@ int main(int argc, char *argv[])
 {
     simulation sim(4000, time(NULL));
 
-    size_t iterations = 1000;
+    size_t iterations = 6000;
     if (argc >= 2)
         iterations = std::stoull(argv[1]);
 

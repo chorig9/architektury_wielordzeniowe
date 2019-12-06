@@ -82,8 +82,8 @@ void display(void)
 
     DrawWals();
 
-    for (int i = 0; i < sim->balls().size(); i++)
-        DrawCircle(sim->balls()[i].position.x, sim->balls()[i].position.y, sim->balls()[i].radius(), 50);
+    for (int i = 0; i < sim->balls().size; i++)
+        DrawCircle(sim->balls().x[i], sim->balls().y[i], sim->balls().mass[i], 50);
 
     glutSwapBuffers();
 }

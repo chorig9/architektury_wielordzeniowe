@@ -6,5 +6,10 @@ v2 - with regions (ms):
 	mean: 722.60000000000000000000
 	var: 16
 
+v3 - singlthreaded (6k iter):
+	mean: 12408.90000000000000000000
+	var: 133
+
+
 
 
