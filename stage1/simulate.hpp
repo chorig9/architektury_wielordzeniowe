@@ -50,6 +50,8 @@ struct Balls
 
     int size;
     int capacity;
+
+    char padding[8];
 };
 
 bool is_collision(float x1, float y1, float r1, float x2, float y2, float r2)
@@ -169,110 +171,132 @@ public:
         }
 
         _balls.size = n_balls;
+
+        region_id = aligned_alloc<int>(_balls.size);
+    }
+
+    ~simulation()
+    {
+        std::free(region_id);
     }
 
     void step()
     {
-        //std::array<std::vector<Ball>, REGIONS_NUM> regions;
-        std::array<Balls, REGIONS_NUM> regions;
+        #pragma omp parallel
+        {
+            #pragma omp for simd
+            for (int i = 0; i < REGIONS_NUM; i++)
+                regions[i].size = 0;
 
-        // for (int r = 0; r < REGIONS_NUM; r++) {
-        //     // XXX: just calculate to which region ball should go? (in parralell)
-        //     for (int i = 0; i < _balls.size(); i++) {
-        //         int region_x = (_balls[i].position.x + WIDTH / 2) / REGIONS_SINGLE;
-        //         int region_y = (_balls[i].position.y + HEIGHT / 2) / REGIONS_SINGLE;
+            #pragma omp for simd
+            for (int i = 0; i <  _balls.size; i++)
+                region_id[i] = 0;
 
-        //         if (region_x == (r % REGIONS_X) && region_y == (r / REGIONS_X)) {
-        //             regions[r].push_back(_balls[i]);
-        //         }
-        //     }
-        // }
+            #pragma omp for simd
+            for (int i = 0; i < _balls.size; i++) {
+                    int region_x = (_balls.x[i] + WIDTH / 2) / REGIONS_SINGLE;
+                    int region_y = (_balls.y[i] + HEIGHT / 2) / REGIONS_SINGLE;
 
-        for (int i = 0; i < _balls.size; i++) {
-                int region_x = (_balls.x[i] + WIDTH / 2) / REGIONS_SINGLE;
-                int region_y = (_balls.y[i] + HEIGHT / 2) / REGIONS_SINGLE;
-
-                int r = region_x + region_y * REGIONS_X;
-                auto &balls = regions[r];
-
-                balls.x[balls.size] = _balls.x[i];
-                balls.y[balls.size] = _balls.y[i];
-                balls.v_x[balls.size] = _balls.v_x[i];
-                balls.v_y[balls.size] = _balls.v_y[i];
-                balls.mass[balls.size] = _balls.mass[i];
-                balls.index[balls.size] = _balls.index[i];
-                balls.size++;
+                    int r = region_x + region_y * REGIONS_X;
+                    region_id[i] = r;
             }
 
-        for (int r = 0; r < REGIONS_NUM; r++) {
-            int neighbour_regions[] = {1, REGIONS_X, REGIONS_X + 1};
+            #pragma omp for
+            for (int i = 0; i < _balls.size; i+= 8) {
+                Balls* balls[8];
 
-            // neighbour regions
-            for (int rs = 0; rs < 3; rs++) {
-                int neighbour = r + neighbour_regions[rs];
+                for (int j = 0; j < 8; j++) {
+                    balls[j] = &regions[region_id[i + j]];
+                }
 
-                if (neighbour < 0 || neighbour >= REGIONS_NUM)
-                    continue;
-
-                for (int i = 0; i < regions[r].size; i++) {
-                    for (int j = 0; j < regions[neighbour].size; j++) {
-                        collide(regions[r].x[i],
-                                regions[r].y[i],
-                                regions[r].mass[i],
-                                regions[r].v_x[i],
-                                regions[r].v_y[i],
-                                regions[neighbour].x[j],
-                                regions[neighbour].y[j],
-                                regions[neighbour].mass[j],
-                                regions[neighbour].v_x[j],
-                                regions[neighbour].v_y[j]);
+                #pragma omp critical
+                {
+                    for (int j = 0; j < 8; j++) {
+                        balls[j]->x[balls[j]->size] = _balls.x[i + j];
+                        balls[j]->y[balls[j]->size] = _balls.y[i + j];
+                        balls[j]->v_x[balls[j]->size] = _balls.v_x[i+ j ];
+                        balls[j]->v_y[balls[j]->size] = _balls.v_y[i+ j];
+                        balls[j]->mass[balls[j]->size] = _balls.mass[i+ j];
+                        balls[j]->index[balls[j]->size] = _balls.index[i+ j];
+                        balls[j]->size++;
                     }
                 }
             }
 
-            // same region
-            for (int i = 0; i < regions[r].size; i++) {
-                for (int j = i + 1; j < regions[r].size; j++) {
-                        collide(regions[r].x[i],
-                                regions[r].y[i],
-                                regions[r].mass[i],
-                                regions[r].v_x[i],
-                                regions[r].v_y[i],
-                                regions[r].x[j],
-                                regions[r].y[j],
-                                regions[r].mass[j],
-                                regions[r].v_x[j],
-                                regions[r].v_y[j]);
+            #pragma omp for
+            for (int r = 0; r < REGIONS_NUM; r++) {
+                int neighbour_regions[] = {1, REGIONS_X, REGIONS_X + 1};
+
+                // neighbour regions
+                for (int rs = 0; rs < 3; rs++) {
+                    int neighbour = r + neighbour_regions[rs];
+
+                    if (neighbour < 0 || neighbour >= REGIONS_NUM)
+                        continue;
+
+                    for (int i = 0; i < regions[r].size; i++) {
+                        for (int j = 0; j < regions[neighbour].size; j++) {
+                            collide(regions[r].x[i],
+                                    regions[r].y[i],
+                                    regions[r].mass[i],
+                                    regions[r].v_x[i],
+                                    regions[r].v_y[i],
+                                    regions[neighbour].x[j],
+                                    regions[neighbour].y[j],
+                                    regions[neighbour].mass[j],
+                                    regions[neighbour].v_x[j],
+                                    regions[neighbour].v_y[j]);
+                        }
+                    }
+                }
+
+                // same region
+                for (int i = 0; i < regions[r].size; i++) {
+                    for (int j = i + 1; j < regions[r].size; j++) {
+                            collide(regions[r].x[i],
+                                    regions[r].y[i],
+                                    regions[r].mass[i],
+                                    regions[r].v_x[i],
+                                    regions[r].v_y[i],
+                                    regions[r].x[j],
+                                    regions[r].y[j],
+                                    regions[r].mass[j],
+                                    regions[r].v_x[j],
+                                    regions[r].v_y[j]);
+                    }
                 }
             }
-        }
 
-        // assign data back
-        for (int r = 0; r < REGIONS_NUM; r++) {
-            for (int i = 0; i < regions[r].size; i++) {
-                auto &balls = regions[r];
-                auto index = balls.index[i];
+            // assign data back
+            #pragma omp for
+            for (int r = 0; r < REGIONS_NUM; r++) {
+                for (int i = 0; i < regions[r].size; i++) {
+                    auto &balls = regions[r];
+                    auto index = balls.index[i];
 
-                _balls.x[index] = balls.x[i];
-                _balls.y[index] = balls.y[i];
-                _balls.v_x[index] = balls.v_x[i];
-                _balls.v_y[index] = balls.v_y[i];
-                _balls.mass[index] = balls.mass[i];
-                _balls.index[index] = balls.index[i];
-            }   
-        } 
+                    _balls.x[index] = balls.x[i];
+                    _balls.y[index] = balls.y[i];
+                    _balls.v_x[index] = balls.v_x[i];
+                    _balls.v_y[index] = balls.v_y[i];
+                    _balls.mass[index] = balls.mass[i];
+                    _balls.index[index] = balls.index[i];
+                }   
+            }
 
-        // collide with walls
-        for (int i = 0; i < _balls.size; i++) {
-            collide_wall(_balls.x[i],
-                    _balls.y[i],
-                    _balls.mass[i],
-                    _balls.v_x[i],
-                    _balls.v_y[i]);
-        }
+            // collide with walls
+            #pragma omp for
+            for (int i = 0; i < _balls.size; i++) {
+                collide_wall(_balls.x[i],
+                        _balls.y[i],
+                        _balls.mass[i],
+                        _balls.v_x[i],
+                        _balls.v_y[i]);
+            }
 
-        for (int i = 0; i < _balls.size; i++) {
-            advance(_balls.x[i], _balls.y[i], _balls.v_x[i], _balls.v_y[i]);
+            #pragma omp for simd
+            for (int i = 0; i < _balls.size; i++) {
+                advance(_balls.x[i], _balls.y[i], _balls.v_x[i], _balls.v_y[i]);
+            }
         }
     }
 
@@ -302,6 +326,9 @@ private:
             return {x, y};
     }
 
+    std::array<Balls, REGIONS_NUM> regions;
+
+    int *region_id;
     int x_regions, y_regions;
     Balls _balls;
 };
