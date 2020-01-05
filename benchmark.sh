@@ -3,8 +3,10 @@ sum=0
 max=0
 min=10000000
 
+bin=$1
+
 for run in {1..10}; do
-	 iter_result=$(./measure.out);
+	 iter_result=$($1);
 
 	echo $iter_result
 

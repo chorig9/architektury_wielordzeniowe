@@ -318,36 +318,6 @@ public:
         CudaBalls c_balls = alloc_cuda_balls(_balls.size);
         memcpy_balls_to_device(c_balls, _balls);
 
-        // #pragma omp for collapse(2)
-        // for (int r1 = 0; r1 < REGIONS_X; r1 +=2) {
-        //     for (int r2 = 0; r2 < REGIONS_X; r2 +=2) {
-        //         do_collide(r1 * REGIONS_X + r2);
-        //     }
-        // }
-
-        // #pragma omp for collapse(2)
-        // for (int r1 = 1; r1 < REGIONS_X; r1 +=2) {
-        //     for (int r2 = 0; r2 < REGIONS_X; r2 +=2) {
-        //         do_collide(r1 * REGIONS_X + r2);
-        //     }
-        // }
-
-        // #pragma omp for collapse(2)
-        // for (int r1 = 0; r1 < REGIONS_X; r1 +=2) {
-        //     for (int r2 = 1; r2 < REGIONS_X; r2 +=2) {
-        //         do_collide(r1 * REGIONS_X + r2);
-        //     }
-        // }
-
-        // #pragma omp for collapse(2)
-        // for (int r1 = 1; r1 < REGIONS_X; r1 += 2) {
-        //     for (int r2 = 1; r2 < REGIONS_X; r2 +=2) {
-        //         do_collide(r1 * REGIONS_X + r2);
-        //     }
-        // }
-
-        // do_collide<<REGIONS_X, 
-
         for (int i = 0; i < iters; i++) {
             clear_regions<<<blocksPerGrid, threadsPerBlock>>>(regions_size);
             split_to_regions<<<blocksPerGrid, threadsPerBlock>>>(c_balls, regions, regions_size);
@@ -495,24 +465,4 @@ private:
     int threadsPerBlock;
     int blocksPerGrid;
 };
-
-// int
-// main(int argc, char *argv[])
-// {
-//     // Error code to check return values for CUDA calls
-//     cudaError_t err = cudaSuccess;
-
-//     size_t freem, totalm;
-//     err = cudaMemGetInfo(&freem, &totalm);
-//     check_error(err, "get info");
-//     printf("Opt1: Free memory %lu, total memory %lu\n", freem, totalm);
-
-//     // Reset the device and exit
-//     err = cudaDeviceReset();
-//     check_error(err, "device reset");
-
-//     printf("Done\n");
-//     return 0;
-// }
-
 
